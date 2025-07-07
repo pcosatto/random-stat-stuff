@@ -1,0 +1,10 @@
+---
+title: "About this page"
+image: profile_pic.jpg
+about:
+  template: jolla
+---
+
+Some random stuff that I study and share. Most of the things are drafts, articles about some model or methodology I tried, or a simulation I made, inspired by classes or research projects.
+
+If you find errors, or have any comments or something you would like to share with me, this is my email contact: **cosat003\@umn.edu**

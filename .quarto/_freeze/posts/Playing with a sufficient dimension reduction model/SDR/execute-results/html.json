@@ -1,0 +1,15 @@
+{
+  "hash": "76614b5a64fd4b6925c655f598fcf3f6",
+  "result": {
+    "engine": "knitr",
+    "markdown": "---\ntitle: \"A model for sufficient dimension reduction\"\nauthor: \"Pedro Cosatto\"\ndate: \"Jun 2025\"\ncategories:\n  - sufficient dimension reduction\n  - regression\nformat:\n  html:\n    html-math-method: mathjax\n    include-before-header:\n      - file: mathjax-config.html\n---\n\n\n",
+    "supporting": [],
+    "filters": [
+      "rmarkdown/pagebreak.lua"
+    ],
+    "includes": {},
+    "engineDependencies": {},
+    "preserve": {},
+    "postProcess": true
+  }
+}

@@ -1,0 +1,614 @@
+---
+title: "Function-on-scalar regression"
+description: "Weather example"
+author: "Pedro Cosatto"
+date: "July 7, 2025"
+categories:
+  - functional data analysis
+  - regression
+format:
+  html:
+    self-contained: true
+    html-math-method: mathjax
+    include-before-header:
+      - file: mathjax-config.html
+bibliography: references.bib      
+---
+
+```{r setup, include=FALSE}
+options(repos = c(CRAN = "https://cran.rstudio.com"))
+knitr::opts_chunk$set(echo = TRUE, fig.width=4, fig.height=4, fig.align = 'center', comment = NA)
+options(contrasts = c("contr.sum", "contr.poly"))
+source('librerias y funciones.R')
+palette(paletteer::paletteer_c("grDevices::Dark 3", 4))
+```
+
+### Introduction
+
+We work with weather data from 71 weather stations in Argentina, from a [public data source](https://www.datos.gob.ar/), in which several variables were measured during a year. The dataset consists of monthly mean temperatures recorded over a full year, together with some basic geographical descriptors of each station.
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+library(readr)
+data <- read_csv("Argentina_weather.csv", 
+                 col_types = cols(Ene = col_number(), 
+                                  Feb = col_number(), Mar = col_number(), 
+                                  Abr = col_number(), May = col_number(), 
+                                  Jun = col_number(), Jul = col_number(), 
+                                  Ago = col_number(), Sep = col_number(), 
+                                  Oct = col_number(), Nov = col_number(), 
+                                  Dic = col_number()))
+
+data <- data[1:608, ]
+data$Region <- as.factor(data$Region)
+
+data_split <- split(data, data$`Mean value`)
+Y <- as.matrix(data_split[[7]][,7:18])   # N x n response matrix (12
+N <- nrow(Y)
+n <- ncol(Y)
+rownames(Y) <- as.matrix(data_split[[1]][,1])
+```
+
+```{r echo = FALSE}
+graph_par()
+matplot(t(Y), type = 'l', lty = 1)
+text(9.7, 2, TeX('$Y_{71}(t)'), col = N)
+lines(1:12, Y[N,], col = N, lwd = 2)
+abline(v=4, lty= 2, col = 'grey80')
+text(5, 27, expression(y(4)))
+points(rep(4, N),Y[,4], pch = 20, col = 'grey40')
+```
+
+In this plot we can visualize the curves, denoted by $Y_{i}(t)$. Along with this, we also have some geographical features describing each individual weather station -such as as latitude, longitude, altitude above sea level, and region.
+
+Our goal is to describe and predict *the complete temperature curve* of some given station, as a single random object, by using the information of the features. That is, what is a response *variable* in traditional regression setting will be response *function*. We could also use such a model to study with some detail **how the different explanatory variables affect the shape of the temperature curves**, by studying their derivatives and other characteristics of the curves. This models, in which the response is a random function and covariates are still treated as numeric or categorical variables, are known as **function-on-scalar (FoS)** regressions, and are within the larger field of functional data analysis.
+
+This work is based almost entirely on Chapters 5 and 13 of Ramsay-Silverman textbook [@ramsay2005]. Our goal here is try to reproduce and put into practice some results that appear in those chapters.
+
+A typical functional data analysis first involves some type of *smoothing* of the data, since they typically appear as discretized observations, in different points of time or space, of a curve. Through this process, we can characterize each set of observations for a single experimental unit as a single smooth curve.
+
+### First step - Describing the response as a smooth function
+
+We denote $\mathbf{y}(t)$ as a vector observation of all our weather stations at time $t \in \mathcal{T}$. We can think of $\mathcal{T}$ as the set of real numbers in $[0, 12]$, although our observations are made in discrete points. In the plot above we see the observation $\mathbf{y}(4)$. As mentioned, the smoothing process consists of creating an observation $\hat{\mathbf{y}}(t)$ for *any* $t \in \mathcal{T}$. We can set up an additive measurement-error model as
+
+$$ \mathbf{y}(t) = \mathbf{c'} \phi(t) + \epsilon(t) $$
+
+the vector $\phi(t)$ contains a set of functions evaluated at $t$. This set of functions constitutes the *basis functions*, and we can choose as many as we want. Their expressions will be determined by the basis methodology we choose (typically Fourier expansions or B-splines).
+
+Suppose that we choose a total of $K_{Y}$ functions, and then we then combine them linearly with the real coefficients contained in the vector $\mathbf{c} \in \mathbb{R}^{K_Y}$. The term $\epsilon(t)$ is a random error vector, for each specific point in time. We use classic least squares as a method to estimate $\mathbf{c}$, as described in detail in Chapter 4 of [@ramsay2005]. Let $\mathbf{Y} \in \mathbb{R}^{N \times n}$ be the temperature data matrix, where $N=71$ rows contain each weather station, observed in $n = 12$ points of time. Let $\boldsymbol{\Phi} \in \mathbb{R}^{K_{Y} \times n}$ be the matrix that contains the basis functions evaluated in the points evaluated in the sample points. This is treated as a 'design matrix' in the classic regression terminology. Let's choose $K_Y = 8$ and we will work with Fourier basis expansions as a method to produce our basis functions (this is suitable for periodic data).
+
+```{r}
+K_y <- 8
+basis_Y <- create.fourier.basis(rangeval = c(0,12), nbasis = K_y)
+
+Phi <- t(eval.basis(1:12, basis_Y)) #dimension K_y x n
+```
+
+Let $\mathbf{C} \in \mathbb{R}^{N \times K_Y}$ be the linear coefficients that link each term of the basis expansion to the individuals in the sample. The least squares estimator is:
+
+$$
+\begin{equation}
+\hat{\mathbf{C}} = \mathbf{Y} \boldsymbol{\Phi}' (\boldsymbol{\Phi}\boldsymbol{\Phi}')^{-1}
+\end{equation} 
+$$ {#eq-1}
+
+```{r}
+C_hat <- as.matrix(Y) %*% t(Phi) %*% solve(Phi %*% t(Phi))
+```
+
+**Since this matrix** $\hat{\mathbf{C}}$ **contains all what is needed to construct an observation** $\mathbf{y}(t)$ **at *any point in time*, we will treat it as the core piece of information for our response variables.** For some $t_0 \in \mathcal{T}$, we can get $\hat{\mathbf{y}}(t)$ by applying the basis coefficients at a desired point $t_0$
+
+$$
+\hat{\mathbf{y}}(t_0) = \hat{\mathbf{C}} \phi(t_0).
+$$
+
+Now, as mentioned before, this *hat versions* of $\mathbf{y}(t)$ will be our input for the actual problem we are treating: The regression of the temperature curves with other available covariates. We will user the hats in $\mathbf{y}$ and $Y$ as fitted values in the regression problem as well.
+
+```{r}
+dense_t_grid <- seq(0,12, by = 0.1) #as much density as we want
+grid_phi <- eval.basis(dense_t_grid, basis_Y)
+Y_dense <- C_hat %*% t(grid_phi)
+```
+
+#### Is previous smoothing necessary?
+
+As we mentioned before, having smooth observations will ensure better quality analysis, since we can work with derivatives. Nevertheless, **we can choose not to smooth**, as we will see later, if we consider that our grid of observed points in $\mathcal{T}$ is *dense* enough for the application we have in mind.
+
+### Second step - Main course: The regression itself
+
+Let's look ad the ingredients we need to construct our main FoS regression.
+
+#### Input data for Y
+
+First, the input data for the response variable, or better speaking , data of our response functions! Here we could use either $\mathbf{Y}$ (plain and simple) or $\mathbf{Y}_{dense}$, as it was named before, as dense as we want. However, If we use the smoothed version, as said before, we will take $\mathbf{\hat{C}}$ as the actual input.
+
+#### Input data for our covariates (a.k.a. the *Xs*)
+
+Input data for our explanatory variables will be organized in a design matrix $\mathbf{X} \in \mathbb{R}^{N \times p}$. Here we choose `Region` (categorical), `Latitude`, `Longitude` and `Altitude` (all numeric). We could add interactions as well. Here, nothing differs from other classical problems. If we chose the categorical variable only, what we would be doing is nothing more than a functional version of one-way ANOVA.
+
+```{r echo = FALSE}
+attach(data_split[[7]])
+```
+
+```{r}
+# Covariate design matrix
+latitude <- scale(Latitude, scale = TRUE)
+altitude <- scale(Altitude, scale = TRUE)
+
+X <- model.matrix(~ Region + latitude + altitude)
+colnames(X) <- c('Mean', levels(data$Region)[1:5], 'Latitude', 'Altitude')
+p <- ncol(X)
+```
+
+We can have a look of what the $\mathbf{X}$ matrix looks like:
+
+```{r echo = FALSE}
+X[1:10,]
+```
+
+The observations of `Latitude` and `Altitude` were centered to ease plotting and interpretation. As values of `Latitude` decrease, the station is farther south.
+
+#### Setting up the linear model
+
+Putting everything into place we have
+
+$$
+\mathbf{y}(t) = \mathbf{X} \boldsymbol{\beta}(t) + \boldsymbol{\varepsilon}(t)
+$$ {#eq-model}
+
+where $\beta(t) \in \mathbb{R}^{p}$ is now a vector function of the coefficients, that is the main parameter that we need to estimate here. The error terms have a variance $\Sigma_e(t)= \sigma^2(t) \mathbf{I}_{N}$ that is supposed to be diagonal (uncorrelated errors) and homoscedastic. This means that all the observations (stations) have the same error variance at a given fixed $t$, and those errors are independent from other points in time (In many problems, this assumptions may seem too strong or unrealistic, since one would expect some kind of dynamic structure in the errors, and also some type of heteroskedasticity *between stations,* due, for example, to different measurement instruments used). Since our $\beta(t)$ are required to be smooth functions, this time we need basis expansion
+
+$$
+\beta(t) = \mathbf{B} \theta(t),
+$$
+
+where $\theta(t)$ is a column vector that has $K_{\beta}$ components (as many as we want), the matrix $\mathbf{B} \in \mathbb{R}^{p \times K_\beta}$ has the linear coefficients to re-construct each one of the *p* terms in $\beta(t)$. this case, since we are expecting $\beta(t)$ to be periodic, we again choose Fourier.
+
+```{r}
+# Basis for beta functions
+K_beta <- 5
+basis_beta <- create.fourier.basis(rangeval = c(0,12), nbasis = K_beta)
+```
+
+#### A way to measure roughness
+
+Let's introduce a roughness measure for $\beta(t)$. This will be useful if we want control on the degree of smoothness of the coefficient function. This can be stated as
+
+$$
+\int_{\mathcal{T}} (L \beta)' (L \beta)
+$$
+
+where the matrix $L$ is a linear differential operator, that multiplied by $\beta$ gives an approximation of the **second derivative**. Since we want the functions $\beta$ not to be very rough, we would like this integral to be relatively small. Notice that, for the first time, we are integrating over $\mathcal{T}$, which is the analogous of summing over the discrete sample space in classical regression.
+
+#### The loss function
+
+Our optimization problem is to reach
+
+$$
+\begin{equation}
+\hat{\mathbf{B}} = \min_{\mathbf{B}} \left\{
+  \int_\mathcal{T} (\hat{\mathbf{C}} \phi - \mathbf{X} \mathbf{B} \theta)' (\hat{\mathbf{C}} \phi - \mathbf{X} \mathbf{B} \theta)
+  + \lambda \int_\mathcal{T} (L \mathbf{B} \theta)' (L \mathbf{B} \theta)
+\right\}.
+\end{equation}
+$$ {#eq-min} in plain words, to find the linear coefficients that we need to construct an estimate $\hat{\beta}(t)$, by minimizing a loss function that introduces a roughness penalty. To simplify notation, we have omitted the dependency on $t$ of the basis functions $\theta$ and $\phi$. Here is a summary of pre-specified things that will affect our results:
+
+-   The previous smoothing of the temperature curves, summarized in $\mathbf{\hat{C}}$.
+
+-   The basis functions $\phi$ and $\theta$ and their sizes $K_Y$ and $K_{\beta}$.
+
+-   The linear differentiation operator $L$.
+
+-   The value of the roughness penalty parameter $\lambda$.
+
+Some of this aspects can be see as hyper-parameters, and can be chosen with techniques as cross-validation.
+
+#### Some matrices
+
+We define here some useful matrices, that will be used in the derivation of the estimator in the next section:
+
+$$
+\mathbf{J}_{\phi\phi} = \int \phi \phi', \quad
+\mathbf{J}_{\theta\theta} = \int \theta \theta', \quad
+\mathbf{J}_{\phi\theta} = \int \phi \theta', \quad
+\mathbf{R} = \int (L\theta)(L\theta)'
+$$
+
+These are all Gram matrices, with the inner products between the different basis terms, integrated over $\mathcal{T}$. They play a role in the minimization process and in calculating the solution. They can easily be obtained with the `fda` library:
+
+```{r}
+library(fda)
+
+#Matrices matrices
+J_YY <- inprod(basis_Y, basis_beta)
+J_BB <- inprod(basis_beta, basis_beta)
+J_YB <- inprod(basis_Y, basis_beta)
+R <- eval.penalty(basis_beta, int2Lfd(2))
+```
+
+#### The *slope* estimates
+
+By calculating the derivative of the argument in @eq-min, with respect to $\mathbf{B}$, setting it to 0, and operating with the traces of the Gram matrices above, we get
+
+$$
+\begin{equation}
+\text{vec}(\hat{\mathbf{B}}) =
+\mathbf{U}^{-1}
+\text{vec}(\mathbf{X}' \hat{\mathbf{C}} \mathbf{J}_{\phi\theta})
+\end{equation}
+$$ {#eq-b}
+
+Where
+
+$$
+\mathbf{U} = \mathbf{J}_{\theta\theta} \otimes (\mathbf{X}' \mathbf{X}) + \mathbf{R} \otimes \lambda I
+$$
+
+Here the notation $\text{vec}$ expresses a vector that has all the elements of $\hat{\textbf{B}}$ stacked by columns, and $\otimes$ is the Kronecker product (for any given matrices A and B, the Kronecker product $A \otimes B$ is a matrix of matrices that result of multiplying each scalar element $a_{ij}$ with B). We could have chosen different penalization parameters $\lambda_i$ for every component of $\beta$. That changes the result slightly, but it's not difficult. It just adds more hyper parameters and makes it a little complicated to choose them. We will keep it simple and use the model as it is.
+
+We calculate @eq-b:
+
+```{r}
+#Roughness penalty parameter
+lambda <- 0.0000001
+
+# Estimate B
+vec_B <- solve(J_BB %x% (t(X) %*% X) + R %x% (lambda*diag(p))) %*% as.vector(t(X) %*% C_hat %*% J_YB)
+B <- matrix(vec_B, nrow = ncol(X), ncol = basis_beta$nbasis, byrow = FALSE)
+rownames(B) <- colnames(X)
+colnames(B) <- basis_beta$names
+```
+
+This is a first result, having chosen $K_Y =$ `r K_y`, $K_\beta =$ `r K_beta` and $\lambda =$ `r lambda` with no criteria at all, just to try. Some work must be done in choosing their best possible values. Since it is a little intensive (but doable), we will skip it for now and see if we can tune them up slightly if our results look strange. We finally get our $\hat{\beta}(t)$:
+
+$$
+\hat{\beta}(t) = \mathbf{\hat{B}} \theta(t).
+$$
+
+#### Plotting and analyzing the slopes estimates
+
+Let $\theta(\mathcal{T}_0)$ denote the basis functions evaluated at a customized grid of points in $\mathcal{T}_0 \subset \mathcal{T}$. We will use the same `dense_t_grid` as our $\mathcal{T}_0$ for plotting purposes, as we did in the first section. We plot
+
+$$
+\hat{\beta}(\mathcal{T}_0) = \mathbf{\hat{B}} \theta(\mathcal{T}_0).
+$$
+
+```{r}
+beta <- B %*% t(eval.basis(dense_t_grid, basis_beta))
+```
+
+We already know that $\beta(t)$ is not a 'slope' strictly, it is a slope vector function, or a function of vector linear coefficients since some variables are categorical. Let's see what its components look like:
+
+```{r echo = FALSE, fig.width= 8, fig.height=8}
+graph_par(c(2,2))
+par(mar=c(1.2,2,1.5,2), cex.main = 0.9)
+plot(dense_t_grid, beta[1,], main = 'Intercept', type = 'l',
+     ylab = 'temp', lwd = 2)
+
+regions <- rbind(beta[2:6,], -apply(beta[2:6,],2,sum))
+rownames(regions) <- levels(data$Region)
+
+matplot(dense_t_grid, t(regions), main = 'Regions', lty = 1,
+        type = 'l', ylab = '', lwd = 2)
+
+plot(dense_t_grid, beta[7,], main = 'Latitude', type = 'l', ylab = 'temp',
+     lwd = 2)
+
+plot(dense_t_grid, beta[8,], main = 'Altitude', type = 'l', ylab = '',
+     lwd = 2)
+```
+
+The top-left plot is the intercept function. The top-right plot contains all the differential effects of belonging to different regions. The two bottom plots show the coefficients for `Altitude` and `Latitude`. We can use this plots to draw some quick conclusions, for example:
+
+-   `Altitude` has a negative effect in temperature. In other words, stations located at higher elevations have cooler temperatures throughout the year, and that effect is more notorious in the warmer months of the year (October to March).
+
+-   The coefficients of `Latitude` are positive, which makes sense since latitude decreases, you go farther south and temperatures get colder. This effect is more intense in the spring and less intense in the winter.
+
+Both coefficients for `Latitude` and `Altitude` have some degree of wiggliness that could potentially be controlled. Finally,
+
+-   We see that the differential effects of the different regions are dispersed around zero. We reproduce Figure 13.2 of [@ramsay2005], where the overall mean (calculated as a sample mean for every $t \in \mathcal{T}_0$ of $\hat{Y}_{dense}$, and the mean conditional to every region -obtained by adding the corresponding $\hat{\beta}_j(t)$- are plotted to illustrate:
+
+```{r echo = FALSE, fig.width= 5, fig.height=8}
+par(mfrow = c(3,2))
+par(mar=c(1,1,1,2))
+for(j in 1:6){
+  
+  plot(dense_t_grid, beta[1,], type = 'l',
+     ylab = '', lwd = 2, lty = 3,
+     xaxt = 'n', las = 2, ylim = c(6, 27))
+  
+  lines(dense_t_grid, beta[1,] + regions[j,],
+        lwd = 2, col = j)
+  text(6.5, 23, levels(data$Region)[j])
+}
+```
+
+#### Fitted values and degrees of freedom
+
+Before we proceed with the inference questions, we compute and plot fitted values $\hat{Y}_i(t)$ for the 71 stations. For a first glance of what the predictions look like, we can plot the high resolution version of the $Y_i(t)$, that is, $\hat{Y}_i(\mathcal{T}_0)$ for our customized dense grid $\mathcal{T}_0$. These dense version of the fitted values are obtained by:
+
+$$
+\hat{\mathbf{Y}} = \mathbf{X}\mathbf{\hat{\beta}}(\mathcal{T}_0) = \mathbf{X}\mathbf{\hat{B}} \theta(\mathcal{T}_0).
+$$
+
+```{r}
+Y_fitted <- X %*% beta 
+```
+
+```{r echo = FALSE}
+graph_par()
+matplot(dense_t_grid, t(Y_fitted), 
+        ylab = 'y fitted', type = 'l', lty = 1)
+```
+
+This nice and smooth curves are all *expected* temperature curves given fixed values for the covariates, so they should not be seen the same way as the curves in the raw data (first plot).
+
+Let's now look at the original observations $\mathbf{Y}$ and their respective $\hat{\mathbf{Y}}$, fitting the response only for the original sample points $\{1, 2, ..., 12\}$. We can find a a closed-form expression for the complete two-step linear mapping that we have made so far, $\mathbf{Y} \rightarrow \hat{\mathbf{Y}}$. The first step is the smoothing of $\mathbf{Y}$, and the second step is obtaining the fitted values of the regression itself. Let
+
+$$
+\boldsymbol{\Theta} \in \mathbb{R}^{K_\beta \times n} \ \ \ \text{and the re-appearing} \ \ \ \ \  \boldsymbol{\Phi} \in \mathbb{R}^{K_Y \times n}
+$$
+
+be the matrices that contain the evaluations of $\theta$ and $\phi$ in the elements in $\{1, 2, ..., 12\}$ (remember $n=12$ in this example). Following the derivations of Chapters 5 and 13 of [@ramsay2005], and also working with ideas taken from section 5.4 of [@hastie2009], we set up the two steps:
+
+1.  The matrix $\hat{\mathbf{C}}$ is first obtained from $\mathbf{Y}$ by @eq-1, and then is plugged in @eq-b to get the coefficients $\text{vec}(\mathbf{\hat{B}})$,
+2.  and the fitted values $\mathbf{\hat{Y}}$ (in *vectorized* version) are obtained by
+
+$$
+\text{vec}(\mathbf{\hat{Y}}) = (\boldsymbol{\Theta}' \otimes \mathbf{X}) \text{vec}(\hat{\mathbf{B}}).
+$$Putting all this together in a single operation we get
+
+$$
+\begin{equation}
+\text{vec}(\hat{\mathbf{Y}}) = \mathbf{H} \text{vec}(\mathbf{Y})
+\end{equation}
+$$ {#eq-proj}
+
+where
+
+$$
+\mathbf{H} = (\boldsymbol{\Theta}' \otimes \mathbf{X}) \mathbf{U}^{-1}(\mathbf{M}' \otimes \mathbf{X}')
+$$
+
+and
+
+$$
+\mathbf{M} = \boldsymbol{\Phi}' (\boldsymbol{\Phi} \boldsymbol{\Phi}')^{-1} \mathbf{J}_{\phi\theta}.
+$$
+
+Beautifully, the two linear mappings are condensed into this **square symmetric mother matrix** $\mathbf{H}$, also known as a *smoother* matrix, that constitutes a projection of the original observations onto a lower-rank subspace. Since a roughness penalization is involved, this projection is not orthogonal (it would be if we had $\lambda = 0$, see Section 5.4 of [@hastie2009]).
+
+The rank of this matrix can be thought as the *resolution* of the projections: Large rank implies large resolution, in other words, fitted curves are prone to over-fitting of the estimated means to the original observations. **The trace of** $\mathbf{H}$ **is the so called *effective* degrees of freedom of the complete fitting procedure.**
+
+The rank and degrees of freedom are not only controlled by the sizes of the expansion basis, $K_\beta$ and $K_Y$, but also by the value of $\lambda$: More penalization implies less over-fitting, hence, lower rank for the projection. An idea on how to determine $\lambda$ numerically by specifying the effective degrees of freedom first is outlined in Section 5.4 of [@hastie2009]. We compute the matrices:
+
+```{r}
+Theta <- t(eval.basis(1:12, basis_beta)) 
+M <- t(Phi) %*% solve(Phi %*% t(Phi)) %*% J_YB
+U <- J_BB %x% (t(X) %*% X) + R %x% (lambda*diag(p))
+H <- (t(Theta) %x% X) %*% solve(U) %*% (t(M) %x% t(X))
+```
+
+```{r}
+#Effective degrees of freedom
+df <- sum(diag(H))
+```
+
+So, with our combination of hyper-parameters we have `r df` *effective* degrees of freedom.
+
+#### Residuals and residual variance
+
+The residuals will actually be residual functions $e_i(t)$, one for each station. These functions give us information about goodness of fit for the temperature curve of every station. To have a look of some examples of stations that had a poor fit, we can obtain
+
+$$
+\texttt{SQe}_i = \int_{\mathcal{T}} e^2_i(t)dt
+$$
+
+We run this calculations in the dense grid $\mathcal{T}_0$, since we are interested in calculating an integral and also plotting:
+
+```{r}
+#The residual functions (high resolution)
+resid <-t(Y_dense - Y_fitted)
+```
+
+Let's approximate the integral for $\texttt{SQe}_i$ by obtaining the squared norm of the columns of `resid`, and choose the two stations with the worst fit.
+
+```{r}
+SQe <- apply(resid, 2, function(x) sum(x^2))
+```
+
+```{r echo = FALSE, fig.width=6, fig.height=3}
+idx <- order(SQe, decreasing = TRUE)[1:2]
+
+graph_par(c(1,2))
+plot(dense_t_grid, Y_dense[idx[1],], type = 'l', lwd = 2, main = row.names(Y)[idx[1]],
+     col = 16, ylab = 'temp', ylim = c(0,30))
+lines(dense_t_grid, Y_fitted[idx[1],], lty = 2)
+text(9, -3, 'fitted', cex = 1)
+
+plot(dense_t_grid, Y_dense[idx[2],], type = 'l', lwd = 2, main = row.names(Y)[idx[2]],
+     col = 68, ylab = 'temp', ylim = c(0,30))
+lines(dense_t_grid, Y_fitted[idx[2],], lty = 2)
+text(11, -10, 'fitted', cex = 1)
+graph_par()
+```
+
+The result is interesting since these are cities in which the wind has a notable influence in temperature. The first one has especially hot winds during the summer, and the second one has cold winds throughout the year. This suggests that the incorporation of a variable related to wind strength may improve the fit.
+
+We finally get an estimate of the error standard deviation function $\sigma(t)$, by calculating sample standard deviations of the residuals at fixed every fixed by t, that is, the rows of `resid`
+
+```{r}
+sigma2 <- apply(resid, 1, sd)
+```
+
+We could, as well, divide by the degrees of freedom calculated previously.
+
+```{r echo = FALSE}
+graph_par()
+plot(dense_t_grid, sqrt(sigma2), type = 'l', main = 'Residual standard deviation', ylab = '')
+```
+
+We can see poorer fits, on average, during the summer months.
+
+### Third step - Basic inference
+
+Having obtained this estimators, and with little concern about a correct tuning of the hyper-parameters, we now sketch statistical inference procedures that use classical uni-variate random sampling theory.
+
+#### Point-wise confidence intervals for regression coefficients
+
+We first find an expression for the covariance of $\hat{\beta}(t)$. Using the expressions above, and simplifying the notation to $\hat{\beta}_t$
+
+$$
+\begin{aligned}
+\hat{\beta}_t = \text{vec} \ \hat{\beta}_t &= \text{vec} \ (\hat{\mathbf{B}}  \theta_t) \\
+&=(\theta_t' \otimes I) \ \mathbf{U}^{-1} \ \text{vec}(\hat{\mathbf{B}}) \\
+&=(\theta_t' \otimes I) \ \mathbf{U}^{-1}\ \text{vec}(\mathbf{X}' \mathbf{Y \mathbf{M}})  \\
+&= (\theta_t' \otimes I) \ \mathbf{U}^{-1}(\mathbf{M}' \otimes \ \mathbf{X}') \ \text{vec}(\mathbf{Y})
+\end{aligned}
+$$
+
+In this expression, the time dependency is in the vector component $\theta_t$. For a simultaneous calculation of many points, it can be replaced for a matrix $\theta(\mathcal{T_0})$ with columns as the basis functions evaluated in a specific set of points (if only the points $\{1, 2, ..., 12\}$ are desired, we would use $\boldsymbol{\Theta}$ as defined previously). In this case, the equality $\hat{\beta}_t = \text{vec} \ \hat{\beta}_t$ clearly does not hold. Let
+
+$$
+\mathbf{V}_t = (\theta_t' \otimes I_p) \ \mathbf{U}^{-1}(\mathbf{M}' \otimes \ \mathbf{X}'),
+$$
+
+a $p \times Nn$ matrix, and recalling our error variance assumption in @eq-model, we obtain the variance-covariance matrix of our estimator as
+
+$$
+\mathsf{Cov}(\mathbf{\hat{\beta}})_t = \mathbf{V}_t (I_n \otimes \sigma^2_t I_N) \mathbf{V}'_t
+$$ {#eq-std-error-beta}
+
+where we plug-in $\hat{\sigma}^2(t)$ to obtain an estimation. As an example, we find the variance-covariance matrix for $t=7$ (July).
+
+```{r}
+t <- 7
+theta_t <- t(eval.basis(t, basis_beta)) #column vector
+
+#The V matrix and its names
+V <- (t(theta_t) %x% diag(p)) %*% solve(U) %*% (t(M) %x% t(X))
+rownames(V) <- colnames(X)
+
+sigma2_t <- sigma2[which(dense_t_grid == t)]
+vcov_t <- V %*% (diag(n) %x% (sigma2_t * diag(N))) %*% t(V)
+```
+
+We get, for the square roots of the diagonal:
+
+```{r echo = FALSE}
+knitr::kable(t(sqrt(diag(vcov_t))), caption = 'Standard errors of regression coefficients coefficients in t=7')
+```
+
+To calculate confidence limits, we can use our Normality and independence assumptions to obtain the classical Z-pivot method. We now plot calculate and plot a grid of confidence intervals for the coefficients of `Altitude` and `Latitude`.
+
+```{r echo = FALSE}
+std_errors <- function(t){
+  
+theta_t <- t(eval.basis(t, basis_beta)) #column vector
+
+#The V matrix and its names
+V <- (t(theta_t) %x% diag(p)) %*% solve(U) %*% (t(M) %x% t(X))
+rownames(V) <- colnames(X)
+
+sigma2_t <- sigma2[which(dense_t_grid == t)]
+vcov_t <- V %*% (diag(n) %x% (sigma2_t * diag(N))) %*% t(V)
+
+return(sqrt(diag(vcov_t)))
+}
+seq <- seq(0, 12, by = 0.2)
+
+beta_months <-  B %*% t(eval.basis(seq, basis_beta))
+std_errors <- sapply(seq, std_errors)
+
+Upper <- beta_months[c(1,7,8),] + std_errors[c(1,7,8),]*qnorm(0.95)
+Lower <- beta_months[c(1,7,8),] - std_errors[c(1,7,8),]*qnorm(0.95)
+```
+
+```{r echo=FALSE, fig.width=8, fig.height=6}
+par(mfrow=c(1,2))
+plot(dense_t_grid,beta[7,], type = 'l', main = 'Latitude', xlab = '',
+     ylab = '', ylim = c(3,4.5))
+segments(x0 = seq,
+         y0 = t(Lower[2,]),
+         y1 = t(Upper[2,]),
+         col = 'lightpink', lwd = 2)
+lines(dense_t_grid, beta[7,], lwd = 2)
+
+plot(dense_t_grid,beta[8,], type = 'l', main = 'Altitude', xlab = '',
+     ylab = '', ylim = c(-3, -1.5))
+segments(x0 = seq,
+         y0 = t(Lower[3,]),
+         y1 = t(Upper[3,]),
+         col = 'lightgreen', lwd = 2)
+lines(dense_t_grid, beta[8,], lwd = 2)
+```
+
+We also include the confidence intervals for the overall temperature mean (coefficient $\beta_1$).
+
+```{r echo = FALSE}
+plot(dense_t_grid,beta[1,], type = 'l', main = 'Overall mean', xlab = '',
+     ylab = '', ylim = c(0, 25))
+segments(x0 = seq,
+         y0 = t(Lower[1,]),
+         y1 = t(Upper[1,]),
+         col = 'salmon', lwd = 2)
+lines(dense_t_grid, beta[1,], lwd = 1)
+```
+
+We can see that the estimation of the overall mean (model intercept) is much more precise. Clearly, we are ignoring the simultaneous error here. Bootstrapping or other re-sampling methods can be used if there is uncertainty about the theoretical assumptions.
+
+#### Mean temperature curve estimation for a new location
+
+Say we were to estimate the mean temperature curve of a new location $\mathbf{x}_0$:
+
+-   The weather station will be located in `NOA` region.
+
+-   The altitude will be 300 meters above sea level.
+
+-   The latitude will be -20.
+
+We first estimate the mean $\hat{\mu}_0$ by applying the coefficients of the model to the `newdata` vector, over a grid of points.
+
+```{r}
+new_latitude <- scale(-20, center = attr(latitude,  "scaled:center"), scale = attr(latitude,  "scaled:scale"))
+new_altitude <- scale(300, center = attr(altitude,  "scaled:center"), scale = attr(altitude,  "scaled:scale"))
+
+newdata <- c(1, 0, 0, 0, 1, 0, new_latitude, new_altitude)
+
+mu_predict <- apply(B %*% t(eval.basis(seq, basis_beta)),2, function(x) sum(x*newdata))
+```
+
+Now we find the variance of the estimation using @eq-std-error-beta.
+
+$$
+\begin{aligned}
+\mathsf{Var}(\hat{\mu}_0)_t &= \mathsf{Var}(\mathbf{x}_0'\hat{\beta}_t) \\
+&= \mathbf{x}_0' \mathsf{Cov}(\hat{\beta}_t) \mathbf{x}_0 \\
+&= \mathbf{x}_0' \mathbf{V}_t (I_n \otimes \sigma^2_t I_N) \mathbf{V}'_t \mathbf{x}_0
+\end{aligned}
+$$
+
+And we can plug-in again for $\hat{\sigma}_t$ to obtain the standard error. In the plot we show the estimation with the grid of point-wise confidence bands, using the Normal pivot again.
+
+```{r echo = FALSE}
+estim_errors <- apply(std_errors, 2, function(x) sqrt(crossprod(newdata*x, newdata)))
+
+Upper_estim <- mu_predict + estim_errors*qnorm(0.95)
+Lower_estim <- mu_predict - estim_errors*qnorm(0.95)
+
+plot(seq, mu_predict, type = 'l', main = 'Mean estimation for new location', ylim = c(10, 33))
+segments(x0 = seq,
+         y0 = t(Lower_estim),
+         y1 = t(Upper_estim),
+         col = 'steelblue', lwd = 2)
+lines(seq, mu_predict, lwd = 2)
+lines(dense_t_grid, beta[1,], lty = 2)
+
+```
+
+The dashed line corresponds to the overall mean (that would be the estimation without model), so we can see that the incorporation of the covariates is somehow useful.
+
+### Further topics
+
+-   Hyper-parameter tuning, to control roughness of the estimators appropriately.
+
+-   More advanced inferential methods, as using integrals or derivatives of the fitted curves.

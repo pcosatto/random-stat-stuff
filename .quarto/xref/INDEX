@@ -1,0 +1,35 @@
+{
+  "index.qmd": {
+    "index.html": "caa4b806"
+  },
+  "about.qmd": {
+    "about.html": "a315f14f"
+  },
+  "posts/post-with-code/index.qmd": {
+    "index.html": "b9608705"
+  },
+  "posts/welcome/index.qmd": {
+    "index.html": "0f9a4eb1"
+  },
+  "posts/Scalar-on-functional regression (Weather example)/SoFR.qmd": {
+    "SoFR.html": "92477334"
+  },
+  "posts/Scalar-on-functional regression (Weather example)/SoFR.Rmd": {
+    "SoFR.html": "c8fae4f7"
+  },
+  "posts/Scalar-on-functional regression (Weather example)/test.qmd": {
+    "test.html": "7c970bd9"
+  },
+  "posts/Scalar-on-functional regression (Weather example)/SoFR_reverted.qmd": {
+    "SoFR_reverted.html": "2648d468"
+  },
+  "posts/Playing with a sufficient dimension reduction model/SDR.qmd": {
+    "SDR.html": "72c74d3d"
+  },
+  "posts/A dive in sufficient dimension reduction/SDR.qmd": {
+    "SDR.html": "df071108"
+  },
+  "posts/Function-on-scalar regression (Weather example)/FoSR.qmd": {
+    "FoSR.html": "2410be08"
+  }
+}
