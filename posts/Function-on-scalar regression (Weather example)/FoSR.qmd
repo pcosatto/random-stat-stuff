@@ -6,6 +6,7 @@ date: "July 7, 2025"
 categories:
   - functional data analysis
   - regression
+image: "preview.png"
 format:
   html:
     self-contained: true
